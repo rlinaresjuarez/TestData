@@ -1,0 +1,655 @@
+rm(list = ls())
+gc()
+library(tictoc)
+
+#-------Limpieza detalle------
+library(data.table)
+library(tm)
+library(stringr)
+library(stringi)
+
+memory.limit(size = 12000)
+
+detalle <- fread('mod_detalle_cpe.csv',nrows = 1000)
+#------
+# detalle1=fread('detalle_cpe_octubre2018.unl', nrows = 20000000)
+# detalle1 <- unique(detalle1)
+# detalle1=data.frame(detalle1)
+# 
+# detalle2=fread('detalle_cpe_octubre2018.unl', nrows = 20000000, skip =   20000000)
+# detalle2 <- unique(detalle2)
+# detalle2=data.frame(detalle2)
+# 
+# detalle3=fread('detalle_cpe_octubre2018.unl', nrows = 20000000, skip =   40000000)
+# detalle3 <- unique(detalle3)
+# detalle3=data.frame(detalle3)
+# detalle1 <- rbind(detalle1, detalle2, detalle3)
+# detalle1 <- unique(detalle1)
+# rm(detalle2, detalle3)
+# gc()
+# 
+# detalle4=fread('detalle_cpe_octubre2018.unl', skip =   60000000)
+# detalle4 <- unique(detalle4)
+# detalle4=data.frame(detalle4)
+# detalle <- rbind(detalle1, detalle4)
+# detalle <- unique(detalle)
+# rm(detalle1, detalle4)
+# gc()
+#-------
+
+detalle=detalle[,c(2,1,3,4,8)]
+colnames(detalle)=c("COD_TIPOCOMP", "NUM_RUC", "NUM_SERIECPE", "NUM_CPE", "DES_DETITM")
+
+fwrite(detalle, file = "cpes.csv",row.names = F)
+
+rm(list = ls())
+gc()
+
+topes <- c(1,seq(1000001,90000001, 1000000))
+nombres <- c("COD_TIPOCOMP", "NUM_RUC", "NUM_SERIECPE", "NUM_CPE", "DES_DETITM")
+
+
+for (i in 1:length(topes)) {
+  cpes <- fread("mod_detalle_cpe.csv", nrows = 1000000, skip = topes[i],header =  F)
+  cpes <- unique(cpes)
+  names(cpes) <-  nombres
+  
+  #cpes$DES_DETITM <- stri_trim(cpes$DES_DETITM)
+  #cpes$DES_DETITM <- stri_trans_tolower(cpes$DES_DETITM)
+  cpes$DES_DETITM <- removeWords(cpes$DES_DETITM, stopwords(kind = "spanish"))
+  cpes$DES_DETITM <- removePunctuation(cpes$DES_DETITM, 
+                                       preserve_intra_word_contractions = FALSE, 
+                                       preserve_intra_word_dashes = FALSE)
+  #cpes$DES_DETITM <- removeNumbers(cpes$DES_DETITM)
+  cpes$DES_DETITM <- stripWhitespace(cpes$DES_DETITM)
+  fwrite(cpes, file = paste("mod_cpes_",i,".csv",sep=""), row.names = F)
+  print(paste("vamos en ", i, " de ", length(topes)))
+}
+
+rm(cpes)
+gc()
+cpes_l=NULL
+
+for (j in 1:(i-1)) {
+  #j=1
+  cpes=fread(paste("mod_cpes_",j,".csv",sep=""), header = TRUE)
+  cpes_l=rbind(cpes_l, cpes)
+  print(paste("vamos en ", j, " de ", (i-1)))
+}
+
+cpes_l <- unique(cpes_l)
+
+
+
+fwrite(cpes_l, file = "mod_cpes_limpio_febrero_19.csv", row.names = F)
+
+#-------Emisores de riesgo------
+rm(list = ls())
+gc()
+library(tidyverse)
+library(data.table)
+library(stringi)
+library(corpus)
+
+
+
+
+
+library(tictoc)
+
+memory.limit(size = 12000) #Mejora el rendimiento de la memoria RAM
+
+FichaEmisor_CIIU <- fread("mod_FichaEmisor_CIIU.csv", colClasses = rep("character",13))
+
+# cabecera <- fread("cabecera_cpe_octubre2018.unl")
+# View(head(cabecera,13000))
+# fwrite(cabecera, "cabecera_cpe_octubre2018.unl", row.names = F, sep = "|")
+
+cabecera <- fread("mod_cabecera_cpe.csv", nrows = 100)
+#write.csv(cabecera,"cabecera.csv")
+nombres <- names(cabecera)
+nombres <- nombres[c(3,2,4,5,8,10,14,19,20,16)]
+
+cabecera <- fread("mod_cabecera_cpe.csv", select = c(3,2,4,5,8,10,14,19,20,16), 
+                  sep = ",", 
+                  col.names = nombres, 
+                  colClasses=list(character=1:6))
+
+colnames(cabecera)=c("COD_TIPOCOMP","NUM_RUC","NUM_SERIECPE","NUM_CPE",
+                     "NUM_DOCIDENTI", "COD_MON","MTO_IMPCPE","MTO_IGVCPE","MTO_TOTAL","FEC_EMICPE")
+
+nombres <- c("COD_TIPOCOMP","NUM_RUC","NUM_SERIECPE","NUM_CPE",
+                     "NUM_DOCIDENTI", "COD_MON","MTO_IMPCPE","MTO_IGVCPE","MTO_TOTAL","FEC_EMICPE")
+
+head(cabecera)
+
+MD_Factura <- inner_join(cabecera,FichaEmisor_CIIU %>% 
+                           select(ruc, cod_act_princ, AP_EMISOR = act_principal, 
+                                  AS1_EMISOR = act_secun1, AS2_EMISOR = act_secun2,
+                                  RS_EMISOR = razon_social,
+                                  condicion, estado, tipo_emp, cond_domicilio, 
+                                  UBIGEO_EMIS = ubigeo, CATEGO_OBJETIVO, 
+                                  Actividad_Economica),by = c("NUM_RUC"="ruc"))
+
+fwrite(MD_Factura,"mod_ficha_nacional.")
+rm(cabecera,FichaEmisor_CIIU)
+gc()
+MD_Factura$llave <- paste(MD_Factura$COD_TIPOCOMP, MD_Factura$NUM_RUC, MD_Factura$NUM_SERIECPE, 
+                          MD_Factura$NUM_CPE, sep = "_")
+
+
+MD_Factura<-fread("MD_Factura.CSV")
+
+head(MD_Factura)
+
+
+# Limpieza de espacios en nro de documentos (RUCs)
+MD_Factura$NUM_RUC <- stri_trim(MD_Factura$NUM_RUC)
+MD_Factura$NUM_DOCIDENTI <- stri_trim(MD_Factura$NUM_DOCIDENTI)
+
+# Filtros de control a cabecera (RUC: inicien con 1 o 2, con 11 caracteres)
+MD_Factura <- MD_Factura %>% filter(nchar(NUM_DOCIDENTI)==11 & 
+                                      (stri_sub(NUM_DOCIDENTI,1,1)==1 | stri_sub(NUM_DOCIDENTI,1,1)==2))
+
+# Actividad principal del receptor  
+
+Ficha_Nacional <- fread("mod_ficha_nacional.csv",
+                        select = c("ruc", "cod_act_princ","act_principal", "act_secun1",
+                                   "act_secun2", "razon_social", "ubigeo", "cond_domicilio",
+                                   "condicion", "estado", "tipo_emp"),
+                        colClasses = rep("character", 11))
+
+
+
+# Ficha_Nacional <- fread("ficha_nacional_luis.unl", sep = "|", colClasses = rep("character", 19))
+
+
+MD_Factura <- inner_join(MD_Factura, 
+                         Ficha_Nacional %>% select(ruc, cod_ap_recep = cod_act_princ,
+                                                   AP_RECEPTOR = act_principal, 
+                                                   AS1_RECEPTOR = act_secun1,
+                                                   AS2_RECEPTOR = act_secun2, 
+                                                   RS_RECEPTOR = razon_social,
+                                                   TIP_EMP_RECEP = tipo_emp,
+                                                   UBIGEO_RECEP = ubigeo, cond_dom_recep = cond_domicilio, 
+                                                   condicion_recep = condicion, estado_recep = estado),
+                                                   # tel_rec = telef_1, 
+                                                   # tel_rec_2 = telef_2, 
+                                                   # correo_rec = correo_1, 
+                                                   # correo_rec2 = correo_2), 
+                         by = c("NUM_DOCIDENTI"="ruc"))
+
+head(MD_Factura)
+
+
+rm(Ficha_Nacional)
+gc()
+
+fwrite(MD_Factura, file = "mod_MD_Factura.csv", row.names = F)
+
+
+MD_Factura$AS1_RECEPTOR <- gsub("\r", "", MD_Factura$AS1_RECEPTOR)
+MD_Factura$AS2_RECEPTOR <- gsub("\r", "", MD_Factura$AS2_RECEPTOR)
+
+MD_Factura <- MD_Factura %>% filter(TIP_EMP_RECEP != "ASOCIACION")
+MD_Factura <- MD_Factura %>% filter(TIP_EMP_RECEP != "GOBIERNO REGIONAL, LOCAL")
+MD_Factura <- MD_Factura %>% filter(TIP_EMP_RECEP != "EMPRESA DE DERECHO PUBLICO")
+MD_Factura <- MD_Factura %>% filter(TIP_EMP_RECEP != "SOCIEDAD CIVIL")
+MD_Factura <- MD_Factura %>% filter(TIP_EMP_RECEP != "COOPERATIVAS, SAIS, CAPS")
+MD_Factura <- MD_Factura %>% filter(TIP_EMP_RECEP != "FUNDACION")
+MD_Factura <- MD_Factura %>% filter(TIP_EMP_RECEP != "INSTITUCIONES RELIGIOSAS")
+MD_Factura <- MD_Factura %>% filter(TIP_EMP_RECEP != "SOCIEDAD DE BENEFICIENCIA")
+MD_Factura <- MD_Factura %>% filter(TIP_EMP_RECEP != "ENT.INST.COOPERAC.TECNICA - ENIEX")
+MD_Factura <- MD_Factura %>% filter(TIP_EMP_RECEP != "SINDICATOS Y FEDERACIONES")
+MD_Factura <- MD_Factura %>% filter(TIP_EMP_RECEP != "JUNTA DE PROPIETARIOS")
+MD_Factura <- MD_Factura %>% filter(TIP_EMP_RECEP != "EMPRESA DE PROPIEDAD SOCIAL")
+
+
+
+summary(MD_Factura)
+##Reemplazando Nullos
+
+MD_Factura$AS1_EMISOR<- if_else(MD_Factura$AS1_EMISOR=="(null)","AS1_EMISOR", MD_Factura$AS1_EMISOR)
+
+MD_Factura$AS2_EMISOR<- if_else(MD_Factura$AS2_EMISOR=="(null)","AS2_EMISOR", MD_Factura$AS2_EMISOR)
+
+MD_Factura$AS1_RECEPTOR<- if_else(MD_Factura$AS1_RECEPTOR=="(null)","AS1_RECEPTOR", MD_Factura$AS1_RECEPTOR)
+
+MD_Factura$AS2_RECEPTOR<- if_else(MD_Factura$AS2_RECEPTOR=="(null)","AS2_RECEPTOR", MD_Factura$AS2_RECEPTOR)
+
+#CONSULTAR URGENTE
+#MD_Factura$MTO_TOTAL <- MD_Factura$MTO_IMPCPE + MD_Factura$MTO_IGVCPE
+
+cpes3 <- MD_Factura %>% filter((AP_RECEPTOR != AP_EMISOR) & (AP_RECEPTOR != AS1_EMISOR) & (AP_RECEPTOR != AS2_EMISOR) & 
+                                 (AS1_RECEPTOR != AP_EMISOR) & (AS1_RECEPTOR != AS1_EMISOR) & (AS1_RECEPTOR != AS2_EMISOR) &
+                                 (AS2_RECEPTOR != AP_EMISOR) & (AS2_RECEPTOR != AS1_EMISOR) & (AS2_RECEPTOR != AS2_EMISOR))
+
+#prueba=MD_Factura %>% filter((AP_RECEPTOR ==AP_EMISOR))
+
+#cpes4 <- MD_Factura %>% filter((AP_RECEPTOR == AP_EMISOR) | (AP_RECEPTOR == AS1_EMISOR) | (AP_RECEPTOR == AS2_EMISOR) | 
+                                # (AS1_RECEPTOR == AP_EMISOR) | (AS1_RECEPTOR == AS1_EMISOR) | (AS1_RECEPTOR == AS2_EMISOR) |
+                                 #(AS2_RECEPTOR == AP_EMISOR) | (AS2_RECEPTOR == AS1_EMISOR) | (AS2_RECEPTOR == AS2_EMISOR))
+
+
+
+
+
+
+
+
+#prueba2<-prueba[,c(12,24)]
+
+
+ciu1 <- c("PLANES DE SEGUROS DE VIDA", "PLANES DE SEGUROS GENERALES", "ACTIV. FINANC. PLANES SEGUROS Y PENS.",
+          "OTRAS ACTIV.RELAC. CON SALUD HUMANA", "ACTIVIDADES DE HOSPITALES", "RESTAURANTES, BARES Y CANTINAS.", 
+          "ACTIVIDADES DE MEDICOS Y ODONTOLOGO", "AGENCIAS DE VIAJES Y GUIAS TURISTIC.", "ACABADO DE PROD. TEXTILES.", 
+          "HOTELES, CAMPAMENTOS Y OTROS.", "VTA. MAY. PRODUCTOS TEXTILES.", "FAB. OTROS PROD. TEXTILES NEOP.", 
+          "VTA. MIN. PRODUCTOS TEXTILES, CALZADO.", "VTA. MIN. ALIMENTOS, BEBIDAS, TABACO.", "VTA. MIN. EN ALMACENES NO ESPECIALIZ.",
+          "VTA. MIN. OTROS PRODUCTOS EN ALMACEN.", "VTA. MIN. EN PUESTOS DE VENTA.", "VTA. MAY. ALIMENTOS, BEBIDAS Y TABACO.", 
+          "FAB. DE PRENDAS DE VESTIR.")
+vec1 <- list(c("ACTIVIDADES DE HOSPITALES", "OTRAS ACTIV.RELAC. CON SALUD HUMANA", "ACTIVIDADES DE MEDICOS Y ODONTOLOGO"), 
+             c("ACTIVIDADES DE HOSPITALES", "OTRAS ACTIV.RELAC. CON SALUD HUMANA", "ACTIVIDADES DE MEDICOS Y ODONTOLOGO"),
+             c("ACTIVIDADES DE HOSPITALES", "OTRAS ACTIV.RELAC. CON SALUD HUMANA", "ACTIVIDADES DE MEDICOS Y ODONTOLOGO"), 
+             c("ACTIVIDADES DE HOSPITALES", "OTRAS ACTIV.RELAC. CON SALUD HUMANA", "ACTIVIDADES DE MEDICOS Y ODONTOLOGO"), 
+             c("ACTIVIDADES DE HOSPITALES", "OTRAS ACTIV.RELAC. CON SALUD HUMANA", "ACTIVIDADES DE MEDICOS Y ODONTOLOGO"), 
+             c("VTA. MIN. OTROS PRODUCTOS EN ALMACEN.", "VTA. MIN. EN ALMACENES NO ESPECIALIZ.", "VTA. MAY. DE OTROS PRODUCTOS.", "OTROS TIPOS DE VENTA AL POR MENOR."), 
+             c("ACTIVIDADES DE HOSPITALES", "OTRAS ACTIV.RELAC. CON SALUD HUMANA", "ACTIVIDADES DE MEDICOS Y ODONTOLOGO"), 
+             c("RESTAURANTES, BARES Y CANTINAS.", "HOTELES, CAMPAMENTOS Y OTROS.", "OTRAS ACTIVID.ENTRETENIMIENTO NCP.", "ACTIV.TEATRALES, MUSICALES Y OTRAS.", "OTRAS ACTIVIDADES DE ESPARCIMIENTO"), 
+             c("FAB. DE PRENDAS DE VESTIR.", "VTA. MIN. PRODUCTOS TEXTILES, CALZADO.", "FAB. DE ARTICULOS DE PIEL."), 
+             c("VTA. MAY. DE OTROS PRODUCTOS.", "RESTAURANTES, BARES Y CANTINAS.", "AGENCIAS DE VIAJES Y GUIAS TURISTIC.", "VTA. MAY. PRODUCTOS TEXTILES.", "ACTIV.TEATRALES, MUSICALES Y OTRAS.", "VTA. MIN. EN ALMACENES NO ESPECIALIZ."), 
+             c("FAB. TEJIDOS Y ART DE PUNTO.", "VTA. MAY. PRODUCTOS TEXTILES."), 
+             c("VTA. MIN. PRODUCTOS TEXTILES, CALZADO.", "VTA. MAY. PRODUCTOS TEXTILES.", "FAB. TEJIDOS Y ART DE PUNTO."), 
+             c("FAB. TEJIDOS Y ART DE PUNTO.", "VTA. MAY. PRODUCTOS TEXTILES.", "FAB. DE CALZADO."), 
+             c("VTA. MAY. DE OTROS PRODUCTOS."),
+             c("VTA. MAY. DE OTROS PRODUCTOS."),
+             c("VTA. MAY. DE OTROS PRODUCTOS."),
+             c("VTA. MAY. DE OTROS PRODUCTOS."), 
+             c("VTA. MAY. DE OTROS PRODUCTOS."),
+             c("VTA. MIN. PRODUCTOS TEXTILES, CALZADO.", "VTA. MAY. PRODUCTOS TEXTILES.", "FAB. TEJIDOS Y ART DE PUNTO."))
+
+cpes3$ind1 <- ifelse(cpes3$AP_RECEPTOR %in% ciu1 | cpes3$AS1_RECEPTOR %in% ciu1 | cpes3$AS2_RECEPTOR %in% ciu1,1,0)
+
+summary(cpes3)
+aux0 <- cpes3 %>% filter(ind1 == 0)
+aux1 <- cpes3 %>% filter(ind1 == 1)
+
+
+for (i in 1:length(ciu1)) {
+  # i=1
+  aux1 <- aux1 %>% filter(!((AP_RECEPTOR == ciu1[i] | AS1_RECEPTOR == ciu1[i] | AS2_RECEPTOR == ciu1[i]) & 
+                              (AP_EMISOR %in% vec1[[i]] | AS1_EMISOR %in% vec1[[i]] | AS2_EMISOR %in% vec1[[i]])))
+}
+
+
+MD_Factura <- bind_rows(aux1, aux0)
+
+# Creacion y transformacion de varaibles
+# Creacion: Fechas - Dia Semana, Dia Mes
+MD_Factura$FEC_EMICPE <- strptime(MD_Factura$FEC_EMICPE, "%Y-%m-%d %H:%M:%S")
+# MD_Factura$FEC_EMICPE <- strptime(MD_Factura$FEC_EMICPE, "%Y-%m-%d")
+MD_Factura$dia_semana <- format(MD_Factura$FEC_EMICPE,"%A")
+MD_Factura$dia_mes    <- format(MD_Factura$FEC_EMICPE,"%e")
+MD_Factura$FEC_EMICPE <- as.character(MD_Factura$FEC_EMICPE)
+
+str(MD_Factura)
+# Transformacion de montos a variables numericas
+MD_Factura$MTO_IMPCPE <- as.numeric(MD_Factura$MTO_IMPCPE)
+MD_Factura$MTO_IGVCPE <- as.numeric(MD_Factura$MTO_IGVCPE)
+
+# Creacion de variable "Segmento del mes" 
+MD_Factura$dia_mes <- as.numeric(MD_Factura$dia_mes)
+MD_Factura$dia_mes_cat <- ifelse(MD_Factura$dia_mes<=3, "Inicio_mes[1-3]" , #En la ultima semana tratan de igualar los ingresos para disminuir su IGV
+                                 ifelse(MD_Factura$dia_mes>=25, "Fin_mes[25-31]", #En la ultima semana tratan de igualar los ingresos para disminuir su IGV
+                                        "Otros[4-24]"))
+
+
+fwrite(MD_Factura,"mod_MD_Factura_febrero_19.csv")
+
+#-------3. Cargar Matriz de Datos (nivel Factura) - Unir facturas con detalle ---------
+rm(list = ls())
+gc()
+library(tidyverse)
+library(data.table)
+library(stringi)
+library(SnowballC)
+library(corpus)
+library(tictoc)
+memory.limit(size = 12000)
+MatrizD <- fread("mod_MD_Factura_febrero_19.csv")
+MatrizD$NUM_RUC=as.character(MatrizD$NUM_RUC)
+MatrizD$NUM_SERIECPE=as.character(MatrizD$NUM_SERIECPE)
+MatrizD$NUM_CPE=as.character(MatrizD$NUM_CPE)
+
+cpes <- fread("mod_cpes_limpio_febrero_19.csv", colClasses = list(character=1:5))
+
+CPEjoin <- inner_join(cpes,MatrizD, by = c("NUM_RUC","NUM_SERIECPE","NUM_CPE"))  ### JOINN
+
+#CPEjoin <- fread("mod_CPEjoin_enero_2019_2.csv", colClasses = list(character=1:6))
+names(CPEjoin) <- c("NUM_RUC","NUM_SERIECPE","NUM_CPE","COD_TIPOCOMP","NUM_DOCIDENTI","COD_MON","MTO_IMPCPE","MTO_IGVCPE","MTO_TOTAL","FEC_EMICPE","COD_ACT_PRINC","AP_EMISOR","AS1_EMISOR","AS2_EMISOR","RS_EMISOR","CONDICION","ESTADO" ,"TIPO_EMP","COND_DOMICILIO","UBIGEO_EMIS","CATEGO_OBJETIVO","ACTIVIDAD_ECONOMICA","LLAVE","COD_AP_RECEP","AP_RECEPTOR","AS1_RECEPTOR","AS2_RECEPTOR","RS_RECEPTOR","TIP_EMP_RECEP","UBIGEO_RECEP","COND_DOM_RECEP","CONDICION_RECEP","ESTADO_RECEP","IND1","DIA_SEMANA","DIA_MES","DES_DETITM")
+
+CPEjoin <- subset(CPEjoin, DES_DETITM != "\\N")
+CPEjoin <- subset(CPEjoin, DES_DETITM != "")
+rm(MatrizD, cpes)
+gc()
+
+
+
+
+CPEjoin$LLAVE <- paste(CPEjoin$COD_TIPOCOMP, CPEjoin$NUM_RUC, CPEjoin$NUM_SERIECPE, 
+                       CPEjoin$NUM_CPE, sep = "_")
+fwrite(CPEjoin, "mod_CPEjoin_febrero_2019_2.csv")
+
+
+Llaves <-
+  CPEjoin %>%
+  group_by(LLAVE,AP_RECEPTOR, AS1_RECEPTOR, AS2_RECEPTOR) %>%
+  summarise(Nitems = n(), Descripcion = paste(DES_DETITM, collapse = " "))
+rm(CPEjoin)
+gc()
+
+fwrite(Llaves, "mod_Llaves_2.csv", row.names = F)
+
+Llaves$Descripcion <- trimws(Llaves$Descripcion)
+Llaves <- Llaves[Llaves$Descripcion != "",]
+
+
+datosLL <- NULL
+tokenLL <- NULL
+palabras_llave_R  <-  list()
+
+
+
+for (i in 1:length(Llaves$Descripcion)) {
+  datosLL <- data_frame(txt=Llaves$Descripcion[i])
+  tokenLL <- as.data.frame(text_tokens(datosLL$txt, stemmer = "sp"))
+  names(tokenLL) <- "word"
+  tokenLL$word <- as.character(tokenLL$word)
+  palabras_llave_R[[i]] <- as.data.frame(tokenLL %>% count(word,sort = T))
+  palabras_llave_R[[i]]$llave <- Llaves$LLAVE[i]
+  palabras_llave_R[[i]]$apy <- Llaves$AP_RECEPTOR[i]
+  palabras_llave_R[[i]]$as1 <- Llaves$AS1_RECEPTOR[i]
+  palabras_llave_R[[i]]$as2 <- Llaves$AS2_RECEPTOR[i]
+  if(i%%10000==0) {print(i)}
+}
+save(palabras_llave_R, file = "mod_palabras_llave_R_febrero_19_1.RData")
+rm(datosLL, tokenLL, Llaves)
+gc()
+
+#---------- Indicador ProporciÃ³n de DIFERENCIAS (palabrasRECEPTOR vs palabrasCIIU) --------
+rm(list = ls())
+gc()
+library(tidyverse)
+library(data.table)
+library(stringi)
+library(SnowballC)
+library(corpus)
+library(tictoc)
+library(tidytext)
+
+
+memory.limit(size = 12000)
+
+load("mod_palabras_llave_R_febrero_19_1.RData")
+P_ll_r <- do.call(rbind.data.frame, palabras_llave_R)
+P_ll_r <- P_ll_r %>% filter(nchar(word)>=3)
+rm(palabras_llave_R)
+gc()
+Wr <- fread("Words_gnd2.csv")
+Wr$cwords <- as.character(Wr$cwords)
+Wr$APY <- as.character(Wr$APY)
+Wr$APY <- stri_trans_tolower(Wr$APY)
+#Agregado##P_ll_r$apy <- stri_trans_tolower(P_ll_r$apy)
+P_ll_r$as1 <- stri_trans_tolower(P_ll_r$as1)
+P_ll_r$as2 <- stri_trans_tolower(P_ll_r$as2)
+Wr$control <- 1
+
+PrWr <- left_join(P_ll_r,Wr,by=c("word"="cwords","apy"="APY"))
+PrWr$control[is.na(PrWr$control)] <- 0
+table(PrWr$control)
+summary(PrWr$control)
+
+PrWr2 <- left_join(P_ll_r,Wr,by=c("word"="cwords","as1"="APY"))
+PrWr2$control[is.na(PrWr2$control)] <- 0
+table(PrWr2$control)
+
+PrWr3 <- left_join(P_ll_r,Wr,by=c("word"="cwords","as2"="APY"))
+PrWr3$control[is.na(PrWr3$control)] <- 0
+table(PrWr3$control)
+
+PrWr$control <- ifelse(PrWr$control + PrWr2$control + PrWr3$control == 0, 0, 1)
+
+LlavesR <- PrWr %>% group_by(llave) %>% summarise(N=n(), Suma = sum(control), PropCom = Suma/n(), PropDif = (n()-Suma)/n() )
+LlavesR <- as.data.frame(LlavesR)
+#head(LlavesR)
+rm(PrWr, PrWr2, PrWr3, P_ll_r, Wr)
+gc()
+fwrite(LlavesR, "mod_LlavesR201902.csv", row.names = F)
+#---------- CosntrucciÃ³n de output Final -------
+facturas <- fread("mod_CPEjoin_febrero_2019_2.csv")
+LlavesR<- fread("mod_LlavesR201902.csv")
+detalles <- facturas %>% select(LLAVE, DES_DETITM)
+facturas <- facturas %>% select(LLAVE, COD_MON,MTO_IMPCPE, MTO_IGVCPE, MTO_TOTAL, FEC_EMICPE, NUM_RUC, AP_EMISOR, AS1_EMISOR, 
+                                AS2_EMISOR, RS_EMISOR, condicion, estado, tipo_emp,dia_mes_cat,
+                                cond_domicilio, UBIGEO_EMIS, NUM_DOCIDENTI, AP_RECEPTOR, AS1_RECEPTOR, AS2_RECEPTOR, 
+                                RS_RECEPTOR, UBIGEO_RECEP, cond_dom_recep, condicion_recep, estado_recep, 
+                                dia_semana, dia_mes, TIP_EMP_RECEP)
+
+#facturas <- facturas %>% select(LLAVE, COD_MON,MTO_IMPCPE, MTO_IGVCPE, MTO_TOTAL, FEC_EMICPE, NUM_RUC, AP_EMISOR, AS1_EMISOR, 
+       #                         AS2_EMISOR, RS_EMISOR, UBIGEO_EMIS, NUM_DOCIDENTI, AP_RECEPTOR, AS1_RECEPTOR, AS2_RECEPTOR, 
+        #                        RS_RECEPTOR, UBIGEO_RECEP, COND_DOM_RECEP, CONDICION_RECEP, ESTADO_RECEP, 
+         #                       DIA_SEMANA, DIA_MES, TIP_EMP_RECEP)
+
+
+
+
+
+facturas <- unique(facturas)
+
+detalles <-  detalles %>% group_by(LLAVE) %>% summarise(Nitems = n(), 
+                                                        Descripcion = paste(DES_DETITM, collapse = " ** "))
+
+facturas <- inner_join(facturas, detalles, by = c("LLAVE"))
+facturas <- inner_join(facturas, LlavesR, by = c("LLAVE"="llave"))
+facturas$NUM_RUC <- as.character(facturas$NUM_RUC)
+facturas$NUM_DOCIDENTI <- as.character(facturas$NUM_DOCIDENTI)
+
+regimen <- fread("regimen.txt")
+facturas <- inner_join(facturas, regimen, by=c("NUM_DOCIDENTI"="vfp_numruc"))
+
+facturas <- facturas %>% filter(regimen != "REGIMEN RUS")
+facturas <- facturas %>% filter(regimen != "REGIMEN ESPECIAL")
+
+table(facturas$regimen)
+
+facturas$MTO_IGVCPE <- as.numeric(facturas$MTO_IGVCPE)
+facturas$MTO_IMPCPE <- as.numeric(facturas$MTO_IMPCPE)
+#Revisar porque la ecuación está incorrecto debería de ser MTO_TOTAL + MTO_IGVCPE = MTO_IMPCPE
+#facturas$MTO_TOTAL <- facturas$MTO_IGVCPE + facturas$MTO_IMPCPE
+
+tip_camb <- 3.3030 #Promedio diario del mes de enero del tipo de cambio según la SUNAT 
+facturas$MTO_IMPCPE <- ifelse(facturas$COD_MON=="usd", facturas$MTO_IMPCPE*tip_camb, facturas$MTO_IMPCPE)
+facturas$MTO_IGVCPE <- ifelse(facturas$COD_MON=="usd", facturas$MTO_IGVCPE*tip_camb, facturas$MTO_IGVCPE)
+facturas$MTO_TOTAL <- ifelse(facturas$COD_MON=="usd", facturas$MTO_TOTAL*tip_camb, facturas$MTO_TOTAL)
+
+fwrite(facturas, "mod_fact_gnd_febrero_2019_3.csv", row.names = F)
+
+####PRIMERA SALIDA CON LOS FILTROS DE SIEMPRE
+#-----Salida - de 100pre----
+#rm(list = ls())
+#gc()
+#library(tidyverse)
+#library(data.table)
+#library(stringi)
+#library(dummies)
+#library(SnowballC)
+#library(corpus)
+#library(tictoc)
+#  memory.limit(size = 12000)
+
+#salida <- fread("mod_fact_gnd_enero_2019_3.csv" )
+#salida <- salida %>% filter(MTO_TOTAL>=0.05*4200)
+#salida <- salida %>% filter(PropDif>0.2)
+
+#dependencia <- fread("dependencia.csv",colClasses = list(character=1:2))
+
+#salida <- inner_join(salida, dependencia,by=c("NUM_DOCIDENTI" = "RUC"))
+#salida <- salida %>% filter(DEPENDENCIA!="0011")
+#rm(dependencia)
+#gc()
+
+#aux3 <- fread("vts_dec_men_pdt.csv")
+
+# Para las facturas 
+#aux4 <- salida %>% group_by(NUM_DOCIDENTI) %>% summarise(MTO_GND = sum(MTO_TOTAL))
+
+#aux5 <- inner_join(aux4, aux3, by=c("NUM_DOCIDENTI" = "n_doc_declado"))
+#aux5$rat1 <- ifelse(aux5$MTO_VTAS_DEC==0,1,aux5$MTO_GND/aux5$MTO_VTAS_DEC)
+
+#salida1 <- inner_join(salida, aux5, by = "NUM_DOCIDENTI")
+#salida2 <- salida1 %>% filter(rat1>0.1)
+
+
+#fwrite(salida2, "mod_fact_gnd_enero_19_CLASICA.csv", row.names = F)
+
+
+#-----Otros filtros----
+rm(list = ls())
+gc()
+library(tidyverse)
+library(data.table)
+library(stringi)
+library(dummies)
+library(SnowballC)
+library(corpus)
+library(tictoc)
+memory.limit(size = 12000)
+
+salida <- final_unique
+salida <- fread("mod_fact_gnd_febrero_2019_3.csv")
+
+blanca <- c("valor minimo mensual", "desarrollo comerc", "intercambio tarj", 
+             "porcentual men", "gasto comun fijo", "prediales", "inversion publicitaria",
+             "vales compra", "variable mensual", "renta fija mensual", "adelanto resultado consorcio", 
+            "venta inmueble", "rancho", "contrato suscrito", "redencion puntos", "despacho centralizado",
+            "alimentacion personal", "comision recaudacion", "alimentacion comedor", "acuerdo auspicio",
+            "alquiler local", "publicidad promociones", "ambulancia urbana", "cesion tda",
+            "promociones diversas", "renta minima")
+
+
+#salida[salida$Descripcion=="ambulancia urbana",]
+
+# View(salida[grep("cesion tda", salida$Descripcion),])
+
+
+
+quitar <- NULL
+for (i in blanca) {
+  a <- grep(i, salida$Descripcion)
+  quitar <- c(quitar,a)
+}
+quitar <- unique(quitar)
+salida <- salida[-quitar,]
+
+actividades <- c("EXT. DE MIN. METALIFEROS NO FERROSOS.", "CONSTRUCCION EDIFICIOS COMPLETOS.")
+aux1 <- salida %>% filter(AP_RECEPTOR %in% actividades | AS1_RECEPTOR %in% actividades | AS2_RECEPTOR %in% actividades)
+aux1 <- aux1[-grep("alimentac", aux1$Descripcion),]
+aux2 <- salida %>% filter(!(AP_RECEPTOR %in% actividades | AS1_RECEPTOR %in% actividades | AS2_RECEPTOR %in% actividades))
+
+salida <- rbind(aux1, aux2)
+
+# fwrite(salida, "borrar.csv", row.names = F)
+
+# aux <- salida %>% group_by(AP_RECEPTOR) %>% summarise(Mediana_mto_tot = median(MTO_TOTAL), 
+#                                                       Promedio_mto_tot = mean(MTO_TOTAL), 
+#                                                       Des_est_mto_to = sd(MTO_TOTAL), 
+#                                                       p5 = quantile(MTO_TOTAL,0.05),
+#                                                       p10 = quantile(MTO_TOTAL,0.10), 
+#                                                       p15 = quantile(MTO_TOTAL,0.15), 
+#                                                       p25 = quantile(MTO_TOTAL,0.25),
+#                                                       p35 = quantile(MTO_TOTAL,0.35), 
+#                                                       p45 = quantile(MTO_TOTAL,0.45), 
+#                                                       p55 = quantile(MTO_TOTAL,0.55),
+#                                                       p65 = quantile(MTO_TOTAL,0.65), 
+#                                                       p75 = quantile(MTO_TOTAL,0.75), 
+#                                                       p85 = quantile(MTO_TOTAL,0.85),
+#                                                       p95 = quantile(MTO_TOTAL,0.95), 
+#                                                       p99 = quantile(MTO_TOTAL,0.99))
+# fwrite(aux, "compras_x_ciiu.csv", row.names = F)
+#salida2=salida
+#salida=salida2
+salida <- salida %>% filter(MTO_IMPCPE>5 & MTO_IMPCPE<200000)
+
+# salida <- salida %>% filter(MTO_TOTAL>=0.05*4150)
+salida <- salida %>% filter(PropDif>0.3)
+
+dependencia <- fread("dependencia.csv",colClasses = list(character=1:2))
+
+#table(dependencia$DEPENDENCIA)
+salida$NUM_DOCIDENTI <- as.character(salida$NUM_DOCIDENTI)
+salida <- inner_join(salida, dependencia,by=c("NUM_DOCIDENTI" = "RUC"))
+salida <- salida %>% filter(DEPENDENCIA!='0011')
+rm(dependencia)
+gc()
+
+aux <- salida %>% group_by(NUM_DOCIDENTI) %>% summarise(MTO_TOT_GND = sum(MTO_IMPCPE))
+salida <- inner_join(salida, aux, by = "NUM_DOCIDENTI")
+
+
+
+
+salida$MTO_BASEIMPONIBLE = salida$MTO_IMPCPE - salida$MTO_IGVCPE
+
+head(salida)
+fwrite(salida, "mod_salida_gnd_febrero_19_I.csv", row.names = F)
+
+#salida <- fread("mod_fact_gnd_enero_2019_3.csv",colClasses = list(character=7:18))
+
+# Lectura de ficha con correos
+Ficha_Nacional <- fread("ficha_nacional_luis.unl", sep = "|", colClasses = rep("character", 19),
+                        select = c("ruc", "telef_1", "telef_2", "correo_1", "correo_2"))
+
+head(Ficha_Nacional)
+
+names(Ficha_Nacional)
+gc()
+#salida$NUM_DOCIDENTI <- as.character(salida$NUM_DOCIDENTI)
+
+salida2 <- inner_join(salida, Ficha_Nacional, by = c("NUM_DOCIDENTI" = "ruc"))
+fwrite(salida2, "mod_salida_gnd_febrero_19_I_I.csv", row.names = F)
+
+final = fread("mod_salida_gnd_ene_19_I_I.csv")
+
+
+aux3 <- fread("vts_dec_men_pdt.csv",colClasses = list(character=1))
+
+# Para las facturas 
+aux4 <- salida %>% group_by(NUM_DOCIDENTI) %>% summarise(MTO_GND = sum(MTO_TOTAL))
+
+aux5 <- inner_join(aux4, aux3, by=c("NUM_DOCIDENTI" = "n_doc_declado"))
+aux5$rat1 <- ifelse(aux5$MTO_VTAS_DEC==0,1,aux5$MTO_GND/aux5$MTO_VTAS_DEC)
+
+salida3 <- inner_join(salida2, aux5, by = "NUM_DOCIDENTI")
+salida4 <- salida3 %>% filter(rat1>=0.01)
+#salida2$NUM_RUC <- as.character(salida2$NUM_RUC)
+
+sal1 <- salida2 %>% filter(NUM_RUC %in% c("20109072177", "20100070970"))
+filtros <- c("alquil", "desarrollo comerc", "intercambio tarj", 
+             "porcentual men", "gasto comun fijo", "prediales", "inversion publicitaria",
+             "vales compra", "variable mensual", "renta fija mensual")
+quitar <- NULL
+for (i in filtros) {
+  a <- grep(i, sal1$Descripcion)
+  quitar <- c(quitar,a)
+}
+quitar <- unique(quitar)
+sal1 <- sal1[-quitar,]
+
+salida4 <- salida4 %>% filter(!NUM_RUC %in% c("20109072177", "20100070970"))
+# aaa <- grep("alquil", sal2$Descripcion)
+# View(sal2[aaa,])
+salida2 <- rbind(sal1, sal2)
+
+fwrite(salida4, "mod_fact_gnd_febrero_19_5.csv", row.names = F)
+fwrite(salida3, "mod_fact_gnd_febrero_19_5_II.csv", row.names = F)
+boxplot(salida3$rat1)
+
